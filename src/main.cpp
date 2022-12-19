@@ -4,8 +4,9 @@
 #include <setjmp.h>
 
 //
-#define MAX_TASKS 16       // 16 tasks
+#define MAX_TASKS 2        // 2 tasks
 #define MAX_TASK_SLICE 100 // 100ms
+#define NEW_TASKS(N, TASKS...) MicroTask MicroTasks[N] = {TASKS};
 //
 enum MicroTaskState
 {
@@ -19,13 +20,13 @@ typedef void (*MicroTaskFunc)(void *args);
 // 任务
 typedef struct MicroTask
 {
-  uint8_t id;           // ID, 最多支持16个任务
-  uint8_t valid;        // 是否是有效任务
-  MicroTaskState state; // 状态 see@MicroTaskState
-  jmp_buf *stack;       // 栈空间
-  uint8_t time_slice;   // 分配给任务的时间片，默认一个任务时间片为100毫秒
-  uint8_t switched;     // 是否已经被保存了上下文
-  MicroTaskFunc func;   // 任务执行函数
+  uint8_t id;                    // ID, 最多支持16个任务
+  volatile uint8_t valid;        // 是否是有效任务
+  volatile MicroTaskState state; // 状态 see@MicroTaskState
+  jmp_buf stack;                 // 栈空间
+  volatile uint8_t time_slice;   // 分配给任务的时间片，默认一个任务时间片为100毫秒
+  uint8_t switched;              // 是否已经被保存了上下文
+  MicroTaskFunc func;            // 任务执行函数
 } MicroTask;
 
 /// @brief 每个函数的堆栈
@@ -48,29 +49,37 @@ MicroTask NewTask(MicroTaskFunc func)
   return task;
 }
 // 实现任务的函数
-void f1(void *args)
+void f0(void *args)
 {
-  Serial.println("function-1 be called");
-  Serial.println("function-1 sleep 1000 BEGIN");
-  delay(1000);
-  Serial.println("function-1 sleep 1000 END");
+  Serial.println("function-0 be called");
+  Serial.println("function-0 sleep 5000 BEGIN");
+  int t = 0;
+  while (t <= 10)
+  {
+    delay(1000);
+    t += 1;
+    Serial.print("function-0 sleep:");
+    Serial.println(t);
+  }
+
+  Serial.println("function-0 sleep 5000 END");
 }
 // 实现任务的函数
-void f2(void *args)
+void f1(void *args)
 {
-  Serial.println("function2 be called");
+  Serial.println("function1 be called");
 }
 
 /// @brief 系统进程表
-
-MicroTask MicroTasks[MAX_TASKS] = {NewTask(f1), NewTask(f2)};
+NEW_TASKS(MAX_TASKS, NewTask(f0), NewTask(f1));
 // 保存上下文
-void SaveCtx(MicroTask task)
+void SaveCtx(MicroTask *task)
 {
-  Serial.println("SaveCtx");
+  Serial.print("SaveCtx:");
+  Serial.println(task->id);
 }
 // 移动IP
-void MoveIPToNext()
+void MoveIPToNext(MicroTask *task)
 {
   Serial.println("MoveIPToNext");
 }
@@ -78,18 +87,32 @@ void MoveIPToNext()
 // 中断计时器
 ISR(TIMER1_COMPA_vect)
 {
+
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
     if (MicroTasks[i].valid)
     {
-      if (MicroTasks[i].time_slice > 0 && MicroTasks[i].state == RUNNING)
+      if (MicroTasks[i].time_slice > 0) // 还有时间片
       {
-        MicroTasks[i].time_slice -= 5; // 时间片一直减少
+        if (MicroTasks[i].state == RUNNING)
+        {
+          Serial.print("#ISR# Task time slice DERCEASE");
+          Serial.print("[");
+          Serial.print(i);
+          Serial.print("] => ");
+          Serial.println(MicroTasks[i].time_slice);
+          MicroTasks[i].time_slice -= 50; // 时间片一直减少
+        }
       }
-      else
+      else // 时间片用完了
       {
-        SaveCtx(MicroTasks[i]);
-        MoveIPToNext();
+        Serial.print("#ISR# Task time slice approve:");
+        Serial.print("[");
+        Serial.print(i);
+        Serial.print("]\n\r");
+        SaveCtx(&MicroTasks[i]);
+        ResetTaskTimeSlice(&MicroTasks[i]);
+        MoveIPToNext(&MicroTasks[i]);
       }
     }
   }
@@ -112,9 +135,20 @@ void RunTask()
     {
       if (MicroTasks[i].state == READY)
       {
-        MicroTasks[i].state = RUNNING;
-        MicroTasks[i].func(0);            // 执行
-        ResetTaskTimeSlice(&currentTask); // 重置任务 一个执行完了以后进入下一个就绪周期
+        Serial.print("Current RunTask BEGIN:");
+        Serial.print("[");
+        Serial.print(i);
+        Serial.print("]\n\r");
+        MicroTasks[i].state = RUNNING; // 开始执行
+        MicroTasks[i].func(0);         // 执行
+        MicroTasks[i].state = STOP;    // 执行结束
+        MicroTasks[i].valid = 0;       // 执行完了就把任务给清了
+        Serial.print("Current RunTask END:");
+        Serial.print("[");
+        Serial.print(i);
+        Serial.print("]\n\r");
+        SaveCtx(&MicroTasks[i]);
+        MoveIPToNext(&MicroTasks[i]);
       }
     }
   }
@@ -123,10 +157,11 @@ void RunTask()
 void setup()
 {
   Serial.begin(9600);
+  Serial.println("TIMER1 Setup BEGIN.");
   cli();
   TCCR1A = 0;
   TCCR1B = 0;
-  OCR1A = 0xF424;
+  OCR1A = 0xF424; // 1秒
   TCCR1B = (1 << WGM12) | (1 << CS12);
   TIMSK1 = (1 << OCIE1A);
   sei();
@@ -134,5 +169,7 @@ void setup()
 }
 void loop()
 {
+  delay(5000);
+  Serial.println("<---------------[New CPU interval]---------------->");
   RunTask();
 }
