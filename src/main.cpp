@@ -2,17 +2,20 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <setjmp.h>
-
+//
+#define ALWAYS_INLINE static inline __attribute__((always_inline))
 //
 #define MAX_TASKS 2        // 2 tasks
 #define MAX_TASK_SLICE 100 // 100ms
 #define NEW_TASKS(N, TASKS...) MicroTask MicroTasks[N] = {TASKS};
+// 主进程的栈
+static jmp_buf main_stack;
 //
 enum MicroTaskState
 {
   RUNNING = 0, // 正在运行
   READY,       // 准备好了
-  TIMEOUT,     // 超时被挂起来
+  BLOCK,       // 超时被挂起来
   STOP         // 已经结束
 };
 // 任务函数
@@ -20,11 +23,12 @@ typedef void (*MicroTaskFunc)(void *args);
 // 任务
 typedef struct MicroTask
 {
-  uint8_t id;                    // ID, 最多支持16个任务
+  uint8_t id;                    // ID
   volatile uint8_t valid;        // 是否是有效任务
   volatile MicroTaskState state; // 状态 see@MicroTaskState
   jmp_buf stack;                 // 栈空间
   volatile uint8_t time_slice;   // 分配给任务的时间片，默认一个任务时间片为100毫秒
+  volatile uint64_t time;        // 假设给sleep了，这里表示sleep的时间
   uint8_t switched;              // 是否已经被保存了上下文
   MicroTaskFunc func;            // 任务执行函数
 } MicroTask;
@@ -111,7 +115,6 @@ ISR(TIMER1_COMPA_vect)
         Serial.print(i);
         Serial.print("]\n\r");
         SaveCtx(&MicroTasks[i]);
-        ResetTaskTimeSlice(&MicroTasks[i]);
         MoveIPToNext(&MicroTasks[i]);
       }
     }
@@ -131,8 +134,27 @@ void RunTask()
 {
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
+
     if (MicroTasks[i].valid)
     {
+      switch (MicroTasks[i].state)
+      {
+      case READY:
+
+        break;
+      case RUNNING:
+
+        break;
+      case BLOCK:
+
+        break;
+      case STOP:
+
+        break;
+
+      default:
+        break;
+      }
       if (MicroTasks[i].state == READY)
       {
         Serial.print("Current RunTask BEGIN:");
@@ -147,8 +169,6 @@ void RunTask()
         Serial.print("[");
         Serial.print(i);
         Serial.print("]\n\r");
-        SaveCtx(&MicroTasks[i]);
-        MoveIPToNext(&MicroTasks[i]);
       }
     }
   }
