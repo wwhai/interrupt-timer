@@ -8,8 +8,17 @@
 #define MAX_TASKS 2        // 2 tasks
 #define MAX_TASK_SLICE 100 // 100ms
 #define NEW_TASKS(N, TASKS...) MicroTask MicroTasks[N] = {TASKS};
-// 主进程的栈
-static jmp_buf main_stack;
+// _JBLEN  23
+typedef unsigned char Byte;
+typedef struct CPU_STATE
+{
+  Byte r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17; // call-saved registers
+  Byte r28, r29;                                                               // frame pointer
+  Byte SP_H, SP_L;                                                             // stack pointer
+  Byte STATUS;                                                                 // status register
+  Byte RETURN_ADDR;                                                            // return address (PC)
+};
+
 //
 enum MicroTaskState
 {
@@ -52,11 +61,25 @@ MicroTask NewTask(MicroTaskFunc func)
   task.func = func;
   return task;
 }
-// 实现任务的函数
+//
+CPU_STATE s;
+// 实现主进程任务的函数
 void f0(void *args)
 {
-  Serial.println("function-0 be called");
-  Serial.println("function-0 sleep 5000 BEGIN");
+}
+static MicroTask MainTask = NewTask(f0);
+// 实现任务的函数
+
+void f1(void *args)
+{
+  setjmp(MainTask.stack);
+  memcpy(&s, MainTask.stack, sizeof(CPU_STATE));
+  Serial.print("#F1# RETURN_ADDR: ");
+  Serial.println(s.RETURN_ADDR);
+  Serial.println("function-1 SP:");
+  Serial.print(SP);
+  Serial.println("function-1 be called");
+  Serial.println("function-1 sleep 5000 BEGIN");
   int t = 0;
   while (t <= 10)
   {
@@ -68,14 +91,18 @@ void f0(void *args)
 
   Serial.println("function-0 sleep 5000 END");
 }
-// 实现任务的函数
-void f1(void *args)
+void f2(void *args)
 {
-  Serial.println("function1 be called");
+  setjmp(MainTask.stack);
+  memcpy(&s, MainTask.stack, sizeof(CPU_STATE));
+  Serial.print("#F2# RETURN_ADDR: ");
+  Serial.println(s.RETURN_ADDR);
+  Serial.println("function-2 SP:");
+  Serial.print(SP);
+  Serial.println("function-2 be called");
 }
-
 /// @brief 系统进程表
-NEW_TASKS(MAX_TASKS, NewTask(f0), NewTask(f1));
+NEW_TASKS(MAX_TASKS, NewTask(f1), NewTask(f2));
 // 保存上下文
 void SaveCtx(MicroTask *task)
 {
@@ -91,7 +118,10 @@ void MoveIPToNext(MicroTask *task)
 // 中断计时器
 ISR(TIMER1_COMPA_vect)
 {
-
+  setjmp(MainTask.stack);
+  memcpy(&s, MainTask.stack, sizeof(CPU_STATE));
+  Serial.print("#ISR# RETURN_ADDR: ");
+  Serial.println(s.RETURN_ADDR);
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
     if (MicroTasks[i].valid)
@@ -190,6 +220,10 @@ void setup()
 void loop()
 {
   delay(5000);
-  Serial.println("<---------------[New CPU interval]---------------->");
-  RunTask();
+  Serial.println("loop SP:");
+  Serial.print(SP);
+  Serial.println("<--[New CPU interval]->");
+  // RunTask();
+  f1(0);
+  f2(0);
 }
