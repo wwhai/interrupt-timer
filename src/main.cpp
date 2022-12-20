@@ -93,18 +93,19 @@ void TaskYield()
   // 然后再从0号进程跳转到目标
 }
 
-// 中断计时器
-void AVR_RETI()
-{
-  asm volatile("\t\t\tRETI\r\n");
-}
+// 中断返回，用汇编来实现
+asm(".section .text\r\n"
+    ".global AVR_RETI\r\n"
+    "AVR_RETI:\r\n"
+    "\t\tRETI\r\n;;return interrupt");
+extern "C" void AVR_RETI(void) __attribute__((noreturn));
+
+/// 中断入口
 ISR(TIMER1_COMPA_vect)
 {
-  setjmp(MainTask.stack);
-  memcpy(&s, MainTask.stack, sizeof(CPU_STATE));
-  Serial.print("#ISR# RETURN_ADDR: ");
-  Serial.println(s.RETURN_ADDR);
+  Serial.print("#ISR# AVR_RETI BEFORE");
   AVR_RETI();
+  Serial.print("#ISR# AVR_RETI AFTER");
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
     if (MicroTasks[i].valid)
