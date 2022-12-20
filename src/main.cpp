@@ -72,56 +72,39 @@ static MicroTask MainTask = NewTask(f0);
 
 void f1(void *args)
 {
-  setjmp(MainTask.stack);
-  memcpy(&s, MainTask.stack, sizeof(CPU_STATE));
-  Serial.print("#F1# RETURN_ADDR: ");
-  Serial.println(s.RETURN_ADDR);
-  Serial.println("function-1 SP:");
-  Serial.print(SP);
-  Serial.println("function-1 be called");
-  Serial.println("function-1 sleep 5000 BEGIN");
-  int t = 0;
-  while (t <= 10)
-  {
-    delay(1000);
-    t += 1;
-    Serial.print("function-0 sleep:");
-    Serial.println(t);
-  }
-
-  Serial.println("function-0 sleep 5000 END");
+  //----- 系统代码,是编译器自动插入的 BEGIN
+  // if (Tasks[$N].state != RUNNING)
+  // {
+  //   TaskYield();
+  // }
+  //----- 编译器插入代码 END
+  //
 }
 void f2(void *args)
 {
-  setjmp(MainTask.stack);
-  memcpy(&s, MainTask.stack, sizeof(CPU_STATE));
-  Serial.print("#F2# RETURN_ADDR: ");
-  Serial.println(s.RETURN_ADDR);
-  Serial.println("function-2 SP:");
-  Serial.print(SP);
-  Serial.println("function-2 be called");
 }
 /// @brief 系统进程表
 NEW_TASKS(MAX_TASKS, NewTask(f1), NewTask(f2));
 // 保存上下文
-void SaveCtx(MicroTask *task)
+void TaskYield()
 {
-  Serial.print("SaveCtx:");
-  Serial.println(task->id);
-}
-// 移动IP
-void MoveIPToNext(MicroTask *task)
-{
-  Serial.println("MoveIPToNext");
+  // 先切到0号进程
+  longjmp(MainTask.stack, 1);
+  // 然后再从0号进程跳转到目标
 }
 
 // 中断计时器
+void AVR_RETI()
+{
+  asm volatile("\t\t\tRETI\r\n");
+}
 ISR(TIMER1_COMPA_vect)
 {
   setjmp(MainTask.stack);
   memcpy(&s, MainTask.stack, sizeof(CPU_STATE));
   Serial.print("#ISR# RETURN_ADDR: ");
   Serial.println(s.RETURN_ADDR);
+  AVR_RETI();
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
     if (MicroTasks[i].valid)
@@ -144,8 +127,6 @@ ISR(TIMER1_COMPA_vect)
         Serial.print("[");
         Serial.print(i);
         Serial.print("]\n\r");
-        SaveCtx(&MicroTasks[i]);
-        MoveIPToNext(&MicroTasks[i]);
       }
     }
   }
@@ -170,22 +151,6 @@ void RunTask()
       switch (MicroTasks[i].state)
       {
       case READY:
-
-        break;
-      case RUNNING:
-
-        break;
-      case BLOCK:
-
-        break;
-      case STOP:
-
-        break;
-
-      default:
-        break;
-      }
-      if (MicroTasks[i].state == READY)
       {
         Serial.print("Current RunTask BEGIN:");
         Serial.print("[");
@@ -199,6 +164,20 @@ void RunTask()
         Serial.print("[");
         Serial.print(i);
         Serial.print("]\n\r");
+      }
+      break;
+      case RUNNING:
+
+        break;
+      case BLOCK:
+
+        break;
+      case STOP:
+
+        break;
+
+      default:
+        break;
       }
     }
   }
