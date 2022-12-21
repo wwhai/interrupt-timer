@@ -14,14 +14,14 @@ volatile bool scheduing = false;
 static jmp_buf os_context;
 // _JBLEN  23
 typedef unsigned char Byte;
-typedef struct CPU_STATE
+typedef struct
 {
   Byte r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17; // call-saved registers
   Byte r28, r29;                                                               // frame pointer
   Byte SP_H, SP_L;                                                             // stack pointer
   Byte STATUS;                                                                 // status register
   Byte RETURN_ADDR;                                                            // return address (PC)
-};
+} CPU_STATE;
 
 //
 enum MicroTaskState
@@ -74,17 +74,26 @@ void f0(void *args)
 // 实现任务的函数
 void f1(void *args)
 {
+  int acc = 0;
   while (true)
   {
-    delay(2000);
+    delay(100);
+    Serial.print("[");
+    Serial.print(acc++);
+    Serial.print("]");
     Serial.print("●\r\n");
   }
 }
 void f2(void *args)
 {
+  int acc = 0;
+
   while (true)
   {
-    delay(1000);
+    delay(20);
+    Serial.print("[");
+    Serial.print(acc++);
+    Serial.print("]");
     Serial.print("◆\r\n");
   }
 }
@@ -94,16 +103,13 @@ static MicroTask currentTask;
 /*----------------*/ NEW_TASKS(NewTask(f0), NewTask(f1), NewTask(f2)); /*----------------*/
 uint8_t valid_count = sizeof(MicroTasks) / sizeof(MicroTask);
 // 保存上下文
-void TaskYield(uint8_t id)
+void TaskYield(void)
 {
-  // 如果是第一次表示此时该上下文是埋点
-  if (setjmp(currentTask.stack) == 0)
+  // 如果是第一次表示此时该上下文被保存
+  // AddTaskCtx(currentTask.stack)
+  if (!setjmp(currentTask.stack)) // 可以理解为第一次加载任务到Task调度器中
   {
-    scheduing = false;
-    longjmp(os_context, 1);
-  }
-  else
-  {
+    longjmp(os_context, 1); // 加载任务以后, 控制权交给Task管理器
   }
 }
 
@@ -119,19 +125,11 @@ extern "C" void AVR_RETI();
 {
   if (currentTask.id < 0) // 表示没有任务
   {
+
     return;
   }
-  // setjmp() returns 0 if returning directly, and
-  // non-zero when returning from longjmp() using the saved context.
-  if (setjmp(os_context) == 1)
-  {
-    Serial.print("# setjmp(MicroTasks[currentTask.id].stack");
-  }
-
-  Serial.print("# ISR TIMER1# ====> valid task count: ");
-  Serial.println(valid_count);
   AVR_RETI();
-
+  Serial.print("# ISR TIMER1 #");
   //-----------------------------------------
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
@@ -142,20 +140,17 @@ extern "C" void AVR_RETI();
         if (MicroTasks[i].state == RUNNING)
         {
           MicroTasks[i].time_slice -= 10; // 时间片一直减少
-          Serial.print("**** MicroTasks[i].time_slice - 10 =");
-          Serial.println(MicroTasks[i].time_slice);
         }
       }
       else // 时间片用完了
       {
-        Serial.println("**** MicroTasks[i].time_slice == 0.");
         if (!scheduing) // 防止重复调度
         {
           Serial.println("**** AVR_RETI scheduing.");
           MicroTasks[i].time_slice = MAX_TASK_SLICE;
           MicroTasks[i].state = READY;
           scheduing = true; // 开始调度
-          TaskYield(MicroTasks[i].id);
+          TaskYield();
         }
       }
     }
@@ -171,6 +166,11 @@ void RunTask()
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
 
+    if (setjmp(os_context)) // 理解为加载了个进程进来进行调度
+    {
+      scheduing = false;
+      continue;
+    }
     if (MicroTasks[i].valid)
     {
       switch (MicroTasks[i].state)
@@ -234,5 +234,5 @@ void loop()
 {
   Serial.println("<--[New CPU interval]-->");
   RunTask();
-  delay(5000); // 频率放慢一点有利于观察输出
+  // delay(5000); // 频率放慢一点有利于观察输出
 }
