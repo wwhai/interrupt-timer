@@ -125,7 +125,6 @@ extern "C" void AVR_RETI();
 {
   if (currentTask.id < 0) // 表示没有任务
   {
-
     return;
   }
   AVR_RETI();
@@ -169,7 +168,7 @@ void RunTask()
     if (setjmp(os_context)) // 理解为加载了个进程进来进行调度
     {
       scheduing = false;
-      continue;
+      continue; // TODO 问题出在这里了， 导致上下文没有恢复成功
     }
     if (MicroTasks[i].valid)
     {
@@ -194,6 +193,7 @@ void RunTask()
       }
       break;
       case RUNNING:
+        longjmp(MicroTasks[i].stack, 1);
         break;
       case BLOCK:
         MicroTasks[i].time--;
@@ -202,6 +202,7 @@ void RunTask()
           if (MicroTasks[i].valid)
           {
             MicroTasks[i].state = READY;
+            longjmp(MicroTasks[i].stack, 1);
           }
         }
         break;
@@ -209,6 +210,7 @@ void RunTask()
         MicroTasks[i].valid = false;
         break;
       default:
+        TaskYield();
         break;
       }
     }
