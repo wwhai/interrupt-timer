@@ -86,15 +86,15 @@ void f1(void *args)
 }
 void f2(void *args)
 {
-  int acc = 0;
-
-  while (true)
+  for (int i = 0; i <= 1000; i++)
   {
-    delay(20);
-    Serial.print("[");
-    Serial.print(acc++);
-    Serial.print("]");
-    Serial.print("◆\r\n");
+    {
+      delay(20);
+      Serial.print("[");
+      Serial.print(i);
+      Serial.print("]");
+      Serial.print("◆\r\n");
+    }
   }
 }
 // 当前任务表数量
@@ -234,5 +234,4 @@ void loop()
 {
   Serial.println("<--[New CPU interval]-->");
   RunTask();
-  // delay(5000); // 频率放慢一点有利于观察输出
 }
