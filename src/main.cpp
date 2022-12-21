@@ -11,7 +11,7 @@ volatile bool scheduing = false;
 #define MAX_TASK_SLICE 100 // 100ms
 #define NEW_TASKS(TASKS...) \
   MicroTask MicroTasks[] = {TASKS};
-
+static jmp_buf os_context;
 // _JBLEN  23
 typedef unsigned char Byte;
 typedef struct CPU_STATE
@@ -96,18 +96,14 @@ uint8_t valid_count = sizeof(MicroTasks) / sizeof(MicroTask);
 // 保存上下文
 void TaskYield(uint8_t id)
 {
-  // 假设有2个任务,这里就是轮番执行了
-  if (id == 0)
+  // 如果是第一次表示此时该上下文是埋点
+  if (setjmp(currentTask.stack) == 0)
   {
-    longjmp(MicroTasks[1].stack, 1);
+    scheduing = false;
+    longjmp(os_context, 1);
   }
-  if (id == 1)
+  else
   {
-    longjmp(MicroTasks[2].stack, 1);
-  }
-  if (id == 2)
-  {
-    longjmp(MicroTasks[0].stack, 1);
   }
 }
 
@@ -125,13 +121,11 @@ extern "C" void AVR_RETI();
   {
     return;
   }
-
   // setjmp() returns 0 if returning directly, and
   // non-zero when returning from longjmp() using the saved context.
-  if (setjmp(MicroTasks[currentTask.id].stack))
+  if (setjmp(os_context) == 1)
   {
     Serial.print("# setjmp(MicroTasks[currentTask.id].stack");
-    scheduing = false;
   }
 
   Serial.print("# ISR TIMER1# ====> valid task count: ");
@@ -173,6 +167,7 @@ extern "C" void AVR_RETI();
 /// @param args
 void RunTask()
 {
+
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
 
