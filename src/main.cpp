@@ -9,7 +9,9 @@ volatile bool scheduing = false;
 //
 #define MAX_TASKS 2        // 2 tasks
 #define MAX_TASK_SLICE 100 // 100ms
-#define NEW_TASKS(N, TASKS...) MicroTask MicroTasks[N] = {TASKS};
+#define NEW_TASKS(N, TASKS...) \
+  MicroTask MicroTasks[N] = {TASKS};
+
 // _JBLEN  23
 typedef unsigned char Byte;
 typedef struct CPU_STATE
@@ -37,13 +39,14 @@ typedef struct MicroTask
   uint8_t id;                    // ID
   volatile uint8_t valid;        // 是否是有效任务
   volatile MicroTaskState state; // 状态 see@MicroTaskState
-  jmp_buf stack;                 // 栈空间
+  uint8_t priority;              // 任务的优先级 0-16
+  jmp_buf stack;                 // 栈空间，大小是24个字节!
   volatile uint8_t time_slice;   // 分配给任务的时间片，默认一个任务时间片为100毫秒
   volatile uint64_t time;        // 假设给sleep了，这里表示sleep的时间
   uint8_t switched;              // 是否已经被保存了上下文
   MicroTaskFunc func;            // 任务执行函数
-} MicroTask;
 
+} MicroTask;
 /// @brief 每个函数的堆栈
 jmp_buf stacks[MAX_TASKS];
 /// @brief 当前执行的任务
@@ -56,28 +59,32 @@ MicroTask NewTask(MicroTaskFunc func)
 {
   MicroTask task;
   task.id = TaskId++;
-  task.valid = 1;
+  task.valid = true;
   task.state = READY;
   task.time_slice = MAX_TASK_SLICE;
-  task.switched = 0;
+  task.switched = false;
   task.func = func;
   return task;
 }
-//
-CPU_STATE s;
+
 // 实现主进程任务的函数
 void f0(void *args)
 {
+  Serial.println("##[OS]## MainTask");
 }
 static MicroTask MainTask = NewTask(f0);
-// 实现任务的函数
 
+// 实现任务的函数
 void f1(void *args)
 {
+  Serial.println("##[TASK]## Task0");
 }
 void f2(void *args)
 {
+  Serial.println("##[TASK]## Task1");
 }
+// 当前任务表数量
+uint8_t valid_count = 3;
 /// @brief 系统进程表
 NEW_TASKS(MAX_TASKS, NewTask(f1), NewTask(f2));
 // 保存上下文
@@ -86,6 +93,7 @@ void TaskYield()
   // 先切到0号进程
   longjmp(MainTask.stack, 1);
   // 然后再从0号进程跳转到目标
+  // longjmp(Next.stack, 1);
 }
 
 asm(".section .text\r\n"
@@ -96,11 +104,12 @@ asm(".section .text\r\n"
 // 也是实时调度的核心。
 extern "C" void AVR_RETI();
 /// 中断入口
+
 ISR(TIMER1_COMPA_vect)
 {
-  Serial.print("#ISR# AVR_RETI BEFORE");
+  Serial.println("#ISR# AVR_RETI BEFORE");
   AVR_RETI();
-  Serial.print("#ISR# AVR_RETI AFTER");
+  Serial.println("#ISR# AVR_RETI AFTER");
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
     if (MicroTasks[i].valid)
@@ -114,7 +123,7 @@ ISR(TIMER1_COMPA_vect)
           Serial.print(i);
           Serial.print("] => ");
           Serial.println(MicroTasks[i].time_slice);
-          MicroTasks[i].time_slice -= 50; // 时间片一直减少
+          MicroTasks[i].time_slice -= 10; // 时间片一直减少
         }
       }
       else // 时间片用完了
@@ -123,6 +132,7 @@ ISR(TIMER1_COMPA_vect)
         Serial.print("[");
         Serial.print(i);
         Serial.print("]\n\r");
+        TaskYield();
       }
     }
   }
@@ -139,6 +149,11 @@ void ResetTaskTimeSlice(MicroTask *task)
 /// @param args
 void RunTask()
 {
+  if (valid_count == 1)
+  {
+    MainTask.func(0);
+    return;
+  }
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
 
@@ -152,10 +167,11 @@ void RunTask()
         Serial.print("[");
         Serial.print(i);
         Serial.print("]\n\r");
-        MicroTasks[i].state = RUNNING; // 开始执行
-        MicroTasks[i].func(0);         // 执行
-        MicroTasks[i].state = STOP;    // 执行结束
-        MicroTasks[i].valid = 0;       // 执行完了就把任务给清了
+        MicroTasks[i].state = RUNNING;                // 开始执行
+        MicroTasks[i].func((void *)MicroTasks[i].id); // 执行
+        MicroTasks[i].state = STOP;                   // 执行结束
+        MicroTasks[i].valid = false;                  // 执行完了就把任务给清了
+        valid_count--;
         Serial.print("Current RunTask END:");
         Serial.print("[");
         Serial.print(i);
@@ -163,15 +179,20 @@ void RunTask()
       }
       break;
       case RUNNING:
-
         break;
       case BLOCK:
-
+        MicroTasks[i].time--;
+        if (MicroTasks[i].time == 0)
+        {
+          if (MicroTasks[i].valid)
+          {
+            MicroTasks[i].state = READY;
+          }
+        }
         break;
       case STOP:
-
+        MicroTasks[i].valid = false;
         break;
-
       default:
         break;
       }
@@ -191,14 +212,12 @@ void setup()
   TIMSK1 = (1 << OCIE1A);
   sei();
   Serial.println("TIMER1 Setup Finished.");
+  MainTask.priority = 0;
+  setjmp(MainTask.stack); // 初始化到主进程中
 }
 void loop()
 {
-  delay(5000);
-  Serial.println("loop SP:");
-  Serial.print(SP);
-  Serial.println("<--[New CPU interval]->");
-  // RunTask();
-  f1(0);
-  f2(0);
+  delay(5000); // 频率放慢一点有利于观察输出
+  Serial.println("<--[New CPU interval]-->");
+  RunTask();
 }
