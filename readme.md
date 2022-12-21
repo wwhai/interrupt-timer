@@ -9,10 +9,37 @@
 ```sh
 pio run -e uno -t upload --upload-port COM7
 ```
+
+## 设计思路
+1. 用户程序控制自己的让出时机
+```c
+void task(id){
+    if (gettask(id).state != RUNNING){
+        task_yield()
+    }
+    user_code();
+}
+```
+2. CPU中断来控制让出时机
+```c
+ISR(){
+     setjmp(stack)
+     longjmp(next_stack)
+}
+```
 ## 实验记录
 ### 预设期望
 1. 开启两个任务，任务A运行期间 sleep 1000豪秒; 任务B运行期间 sleep 10豪秒；
 2. CPU频率为每 5秒 一次调度，这里是为了观察运行效果，可以调整的更慢一些；
 3. 中断为 5 毫秒一次
 ### 断言预测
-当A任务执行的时候，会触发CPU调度机制，会在第五秒的时候将其挂起，然后切换到B，B在第15毫秒的时候会被挂起，然后切换到A，
+当A任务执行的时候，会触发CPU调度机制，会在第五秒的时候将其挂起，然后切换到B，B在第15毫秒的时候会被挂起，然后切换到A
+
+## 模拟器
+- https://wokwi.com/projects/new/arduino-uno
+## 资料
+- https://www.nongnu.org/avr-libc/user-manual/group__asmdemo.html
+- https://github.com/Erriez/ErriezAssembly/blob/master/src/Foo.h
+- https://www.microchip.com/en-us/tools-resources/develop/microchip-studio/gcc-compilers
+- http://www.51hei.com/mcuteach/1312.html
+- https://github.dev/OS-Q/RTX51

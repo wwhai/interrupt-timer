@@ -5,6 +5,8 @@
 //
 #define ALWAYS_INLINE static inline __attribute__((always_inline))
 //
+volatile bool scheduing = false;
+//
 #define MAX_TASKS 2        // 2 tasks
 #define MAX_TASK_SLICE 100 // 100ms
 #define NEW_TASKS(N, TASKS...) MicroTask MicroTasks[N] = {TASKS};
@@ -72,13 +74,6 @@ static MicroTask MainTask = NewTask(f0);
 
 void f1(void *args)
 {
-  //----- 系统代码,是编译器自动插入的 BEGIN
-  // if (Tasks[$N].state != RUNNING)
-  // {
-  //   TaskYield();
-  // }
-  //----- 编译器插入代码 END
-  //
 }
 void f2(void *args)
 {
@@ -93,13 +88,13 @@ void TaskYield()
   // 然后再从0号进程跳转到目标
 }
 
-// 中断返回，用汇编来实现
 asm(".section .text\r\n"
     ".global AVR_RETI\r\n"
     "AVR_RETI:\r\n"
-    "\t\tRETI\r\n;;return interrupt");
-extern "C" void AVR_RETI(void) __attribute__((noreturn));
-
+    "\t\tRETI\r\n");
+// 这个函数的神奇之处就是打破了C语言的函数堆栈，牺牲一个空函数换来任务函数的堆栈
+// 也是实时调度的核心。
+extern "C" void AVR_RETI();
 /// 中断入口
 ISR(TIMER1_COMPA_vect)
 {
