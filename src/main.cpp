@@ -125,6 +125,9 @@ extern "C" void AVR_RETI();
   {
     return;
   }
+
+  // setjmp() returns 0 if returning directly, and
+  // non-zero when returning from longjmp() using the saved context.
   if (setjmp(MicroTasks[currentTask.id].stack))
   {
     Serial.print("# setjmp(MicroTasks[currentTask.id].stack");
