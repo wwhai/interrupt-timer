@@ -66,18 +66,28 @@ MicroTask NewTask(MicroTaskFunc func)
   task.func = func;
   return task;
 }
-
+//-----------------------------
 // 实现主进程任务的函数
+//-----------------------------
 void f0(void *args)
 {
-  Serial.println("##[OS]## MainTask");
+  Serial.println("##[OS]## OS Task0 BEGIN");
 }
 static MicroTask MainTask = NewTask(f0);
 
 // 实现任务的函数
 void f1(void *args)
 {
-  Serial.println("##[TASK]## Task0");
+  Serial.println("##[TASK]## Task1 BEGIN");
+  Serial.println();
+  for (size_t i = 1000; i < 2000; i++)
+  {
+    Serial.print("[");
+    Serial.print(i);
+    Serial.print("]");
+  }
+  Serial.println();
+  Serial.println("##[TASK]## Task1 END");
 }
 void f2(void *args)
 {
@@ -88,12 +98,19 @@ uint8_t valid_count = 3;
 /// @brief 系统进程表
 NEW_TASKS(MAX_TASKS, NewTask(f1), NewTask(f2));
 // 保存上下文
-void TaskYield()
+void TaskYield(uint8_t id)
 {
-  // 先切到0号进程
-  longjmp(MainTask.stack, 1);
-  // 然后再从0号进程跳转到目标
-  // longjmp(Next.stack, 1);
+  Serial.println("DELAY 3000 BEGIN.");
+
+  for (size_t i = 1000; i < 3000; i++)
+  {
+    Serial.print("[");
+    Serial.print(i);
+    Serial.print("] ");
+  }
+  Serial.println();
+  Serial.println("DELAY 3000 END.");
+  scheduing = false;
 }
 
 asm(".section .text\r\n"
@@ -104,12 +121,14 @@ asm(".section .text\r\n"
 // 也是实时调度的核心。
 extern "C" void AVR_RETI();
 /// 中断入口
-
 ISR(TIMER1_COMPA_vect)
 {
-  Serial.println("#ISR# AVR_RETI BEFORE");
+  setjmp(MicroTasks[MainTask.id].stack);
+  Serial.print("# ISR TIMER1# ====> valid task count: ");
+  Serial.println(valid_count);
   AVR_RETI();
-  Serial.println("#ISR# AVR_RETI AFTER");
+  Serial.println("**** AVR_RETI scheduing.");
+  //-----------------------------------------
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
     if (MicroTasks[i].valid)
@@ -118,42 +137,26 @@ ISR(TIMER1_COMPA_vect)
       {
         if (MicroTasks[i].state == RUNNING)
         {
-          Serial.print("#ISR# Task time slice DERCEASE");
-          Serial.print("[");
-          Serial.print(i);
-          Serial.print("] => ");
-          Serial.println(MicroTasks[i].time_slice);
           MicroTasks[i].time_slice -= 10; // 时间片一直减少
         }
       }
       else // 时间片用完了
       {
-        Serial.print("#ISR# Task time slice approve:");
-        Serial.print("[");
-        Serial.print(i);
-        Serial.print("]\n\r");
-        TaskYield();
+        if (!scheduing) // 防止重复调度
+        {
+          scheduing = true; // 开始调度
+          TaskYield(MicroTasks[i].id);
+        }
       }
     }
   }
 }
-/// @brief 重置任务
-/// @param task
-void ResetTaskTimeSlice(MicroTask *task)
-{
-  task->time_slice = MAX_TASK_SLICE; // 重新设置时间片
-  task->state = READY;               // 重新设置状态为就绪
-}
+
 /// @brief 运行任务
 /// @param task
 /// @param args
 void RunTask()
 {
-  if (valid_count == 1)
-  {
-    MainTask.func(0);
-    return;
-  }
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
 
@@ -167,6 +170,7 @@ void RunTask()
         Serial.print("[");
         Serial.print(i);
         Serial.print("]\n\r");
+        MainTask.id = i;                              // 标记当前执行的是哪个函数
         MicroTasks[i].state = RUNNING;                // 开始执行
         MicroTasks[i].func((void *)MicroTasks[i].id); // 执行
         MicroTasks[i].state = STOP;                   // 执行结束
@@ -213,7 +217,6 @@ void setup()
   sei();
   Serial.println("TIMER1 Setup Finished.");
   MainTask.priority = 0;
-  setjmp(MainTask.stack); // 初始化到主进程中
 }
 void loop()
 {
