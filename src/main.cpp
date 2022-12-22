@@ -123,31 +123,25 @@ extern "C" void AVR_RETI();
 /// 中断入口
 /*----------------*/ ISR(TIMER1_COMPA_vect) /*----------------*/
 {
-  if (currentTask.id < 0) // 表示没有任务
-  {
-    return;
-  }
   AVR_RETI();
-  Serial.print("# ISR TIMER1 #");
+  Serial.println("# ISR TIMER1 #");
   //-----------------------------------------
   for (size_t i = 0; i < MAX_TASKS; i++)
   {
-    if (MicroTasks[i].valid)
+    if (MicroTasks[currentTask.id].valid)
     {
-      if (MicroTasks[i].time_slice > 0) // 还有时间片
+      if (MicroTasks[currentTask.id].time_slice > 0) // 还有时间片
       {
-        if (MicroTasks[i].state == RUNNING)
+        if (MicroTasks[currentTask.id].state == RUNNING)
         {
-          MicroTasks[i].time_slice -= 10; // 时间片一直减少
+          MicroTasks[currentTask.id].time_slice -= 10; // 时间片一直减少
         }
       }
       else // 时间片用完了
       {
-        if (!scheduing) // 防止重复调度
+        if (!scheduing) // 全局Flag, 防止中断重复调度
         {
-          Serial.println("**** AVR_RETI scheduing.");
-          MicroTasks[i].time_slice = MAX_TASK_SLICE;
-          MicroTasks[i].state = READY;
+          Serial.println("**** AVR_RETI scheduing BEGIN.");
           scheduing = true; // 开始调度
           TaskYield();
         }
@@ -162,52 +156,54 @@ extern "C" void AVR_RETI();
 void RunTask()
 {
 
-  for (size_t i = 0; i < MAX_TASKS; i++)
+  for (currentTask.id = 0; currentTask.id < MAX_TASKS; currentTask.id++)
   {
-
     if (setjmp(os_context)) // 理解为加载了个进程进来进行调度
     {
       scheduing = false;
       continue; // TODO 问题出在这里了， 导致上下文没有恢复成功
     }
-    if (MicroTasks[i].valid)
+    if (MicroTasks[currentTask.id].valid)
     {
-      switch (MicroTasks[i].state)
+      switch (MicroTasks[currentTask.id].state)
       {
       case READY:
       {
         Serial.print("Current RunTask... BEGIN:");
         Serial.print("[");
-        Serial.print(i);
+        Serial.print(currentTask.id);
         Serial.print("]\n\r");
-        currentTask.id = i;            // 标记当前执行的是哪个函数
-        MicroTasks[i].state = RUNNING; // 开始执行
-        MicroTasks[i].func(0);         // 执行
-        MicroTasks[i].state = STOP;    // 执行结束
-        MicroTasks[i].valid = false;   // 执行完了就把任务给清了
+        MicroTasks[currentTask.id].state = RUNNING; // 开始执行
+        MicroTasks[currentTask.id].func(0);         // 执行
+        MicroTasks[currentTask.id].state = STOP;    // 执行结束, 任务只有到这里才算是结束
+        MicroTasks[currentTask.id].valid = false;   // 执行完了就把任务给清了
         valid_count--;
         Serial.print("Current RunTask... END:");
         Serial.print("[");
-        Serial.print(i);
+        Serial.print(currentTask.id);
         Serial.print("]\n\r");
       }
       break;
-      case RUNNING:
-        longjmp(MicroTasks[i].stack, 1);
+      //-----------------------------------------------------------------
+      // RUNNING 态：具备调度功能
+      //-----------------------------------------------------------------
+      case RUNNING: // 恢复运行, 实际上其状态还是RUNNING, 再次给他时间片
+        Serial.println("Recover--------------------------");
+        MicroTasks[currentTask.id].time_slice = MAX_TASK_SLICE;
+        longjmp(MicroTasks[currentTask.id].stack, 1);
         break;
-      case BLOCK:
-        MicroTasks[i].time--;
-        if (MicroTasks[i].time == 0)
+      case BLOCK: // Sleep() 阻塞任务
+        MicroTasks[currentTask.id].time--;
+        if (MicroTasks[currentTask.id].time == 0)
         {
-          if (MicroTasks[i].valid)
+          if (MicroTasks[currentTask.id].valid)
           {
-            MicroTasks[i].state = READY;
-            longjmp(MicroTasks[i].stack, 1);
+            MicroTasks[currentTask.id].state = READY;
           }
         }
         break;
       case STOP:
-        MicroTasks[i].valid = false;
+        MicroTasks[currentTask.id].valid = false;
         break;
       default:
         TaskYield();
@@ -229,11 +225,9 @@ void setup()
   TIMSK1 = (1 << OCIE1A);
   sei();
   Serial.println("TIMER1 Setup Finished.");
-  currentTask.priority = 0; // 优先级0
-  currentTask.id = -1;      // 当前任务未被调用
+  RunTask();
 }
 void loop()
 {
-  Serial.println("<--[New CPU interval]-->");
-  RunTask();
+  // Serial.println("<--[New CPU interval]-->");
 }
