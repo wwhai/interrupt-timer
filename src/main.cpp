@@ -107,7 +107,7 @@ void TaskYield(void)
 {
   // 如果是第一次表示此时该上下文被保存
   // AddTaskCtx(currentTask.stack)
-  if (!setjmp(currentTask.stack)) // 可以理解为第一次加载任务到Task调度器中
+  if (!setjmp(MicroTasks[currentTask.id].stack)) // 可以理解为第一次加载任务到Task调度器中
   {
     longjmp(os_context, 1); // 加载任务以后, 控制权交给Task管理器
   }
