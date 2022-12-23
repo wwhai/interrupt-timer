@@ -225,9 +225,8 @@ void setup()
   TIMSK1 = (1 << OCIE1A);
   sei();
   Serial.println("TIMER1 Setup Finished.");
-  RunTask();
 }
 void loop()
 {
-  // Serial.println("<--[New CPU interval]-->");
+  RunTask();
 }
